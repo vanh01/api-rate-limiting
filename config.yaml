@@ -1,0 +1,8 @@
+AppName: "API rate limiting"
+Port: 8080
+
+RedisConfig:
+    Host: arl-redis
+    Password: 123456
+    Port: 6379
+    DB: 0

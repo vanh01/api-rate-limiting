@@ -1,0 +1,69 @@
+version: '3'
+
+services:
+  api-service:
+    build: .
+    image: arl
+    container_name: arl
+    depends_on:
+      - redis-service
+      - prometheus-service
+    ports:
+      - "8080:8080"
+    networks:
+      - arl-net
+    restart: unless-stopped
+    tty: true
+
+  redis-service:
+    image: redis:7.2-alpine
+    container_name: arl-redis
+    ports:
+      - 6379:6379
+    networks:
+      - arl-net
+    volumes:
+      - arl-redis:/data
+    command: redis-server --save 20 1 --loglevel warning --requirepass 123456
+    restart: unless-stopped
+
+  prometheus-service:
+    image: prom/prometheus:latest
+    container_name: arl-prometheus
+    ports:
+      - 9090:9090
+    networks:
+      - arl-net
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - arl-prometheus:/prometheus
+    restart: unless-stopped
+
+  grafana-service:
+    image: grafana/grafana:11.4.0-ubuntu
+    container_name: arl-grafana
+    ports:
+      - 3000:3000
+    networks:
+      - arl-net
+    depends_on:
+      - prometheus-service
+    volumes:
+      - arl-grafana:/var/lib/grafana
+    restart: unless-stopped
+
+volumes:
+  arl-redis:
+    name: arl-redis
+    driver: local
+  arl-prometheus:
+    name: arl-prometheus
+    driver: local
+  arl-grafana:
+    name: arl-grafana
+    driver: local
+
+networks:
+  arl-net:
+    name: arl-net
+    driver: bridge
