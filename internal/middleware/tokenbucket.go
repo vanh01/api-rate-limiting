@@ -42,6 +42,8 @@ func TokenBucketRateLimit(capacity, fillRate, token int) echo.MiddlewareFunc {
 			}
 
 			client := clients[key]
+			client.Lock.Lock()
+			defer client.Lock.Unlock()
 			now := time.Now()
 			timePassed := now.Sub(client.LastTime).Seconds()
 			client.NoTokens = min(capacity, client.NoTokens+int(timePassed)*client.FillRate)
