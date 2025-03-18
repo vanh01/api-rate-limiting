@@ -3,6 +3,7 @@ package middleware
 import (
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,6 +15,7 @@ type TokenBucket struct {
 	FillRate int
 	NoTokens int
 	LastTime time.Time
+	Lock     sync.Mutex
 }
 
 func TokenBucketRateLimit(capacity, fillRate, token int) echo.MiddlewareFunc {
@@ -39,16 +41,17 @@ func TokenBucketRateLimit(capacity, fillRate, token int) echo.MiddlewareFunc {
 				return next(c)
 			}
 
+			client := clients[key]
 			now := time.Now()
-			timePassed := now.Sub(clients[key].LastTime).Seconds()
-			clients[key].NoTokens = min(capacity, clients[key].NoTokens+int(timePassed)*clients[key].FillRate)
+			timePassed := now.Sub(client.LastTime).Seconds()
+			client.NoTokens = min(capacity, client.NoTokens+int(timePassed)*client.FillRate)
 
-			if clients[key].NoTokens < token {
+			if client.NoTokens < token {
 				return c.String(http.StatusForbidden, "You have reached your access limit. Action not allowed.")
 			}
 
-			clients[key].LastTime = now
-			clients[key].NoTokens -= token
+			client.LastTime = now
+			client.NoTokens -= token
 
 			return next(c)
 		}
