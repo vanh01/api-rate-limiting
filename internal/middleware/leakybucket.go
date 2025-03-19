@@ -8,6 +8,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
+	"github.com/redis/go-redis/v9"
+
+	"github.com/vanh01/api-rate-limiting/pkg/cache"
 )
 
 type LeakyBucket struct {
@@ -15,11 +18,10 @@ type LeakyBucket struct {
 	LeakRate int
 	Bucket   []time.Time
 	LastLeak time.Time
-	Lock     sync.Mutex
 }
 
-func LeakyBucketRateLimit(capacity, leakRate int) echo.MiddlewareFunc {
-	clients := make(map[string]*LeakyBucket)
+func LeakyBucketRateLimit(capacity, leakRate int, bcache *cache.BaseCache) echo.MiddlewareFunc {
+	clients := make(map[string]*sync.Mutex)
 
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -30,20 +32,31 @@ func LeakyBucketRateLimit(capacity, leakRate int) echo.MiddlewareFunc {
 			}
 
 			key := fmt.Sprintf("leaky_rate_limit:%s", userID)
-			if _, found := clients[key]; !found {
-				clients[key] = &LeakyBucket{
+			if _, exist := clients[key]; !exist {
+				clients[key] = &sync.Mutex{}
+			}
+
+			clients[key].Lock()
+			defer clients[key].Unlock()
+
+			var client *LeakyBucket
+			err = bcache.GetObject(key, &client)
+			if err == redis.Nil {
+				client := &LeakyBucket{
 					Capacity: capacity,
 					LeakRate: leakRate,
 					Bucket:   []time.Time{},
 					LastLeak: time.Now(),
 				}
+				bcache.SetObject(key, client, int64(capacity/leakRate))
 
 				return next(c)
 			}
 
-			client := clients[key]
-			client.Lock.Lock()
-			defer client.Lock.Unlock()
+			if err != nil {
+				return c.String(http.StatusInternalServerError, err.Error())
+			}
+
 			now := time.Now()
 			timePassed := now.Sub(client.LastLeak).Seconds()
 			leaked := int(timePassed) * leakRate
@@ -61,6 +74,8 @@ func LeakyBucketRateLimit(capacity, leakRate int) echo.MiddlewareFunc {
 			}
 
 			client.Bucket = append(client.Bucket, now)
+			bcache.SetObject(key, client, int64(capacity/leakRate))
+
 			return next(c)
 		}
 	}

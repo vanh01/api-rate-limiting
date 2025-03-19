@@ -33,8 +33,8 @@ func New(e *echo.Echo, params UsecaseParam) {
 
 		g.GET("/user/me/fixed-window", userRouter.GetMe, middleware.FixedWindowRateLimit(2, 30, params.BaseCache))      // 2 requests per 30 seconds
 		g.GET("/user/me/sliding-window", userRouter.GetMe, middleware.SlidingWindowRateLimit(10, 30, params.BaseCache)) // 10 requests per 30 seconds
-		g.GET("/user/me/token-bucket", userRouter.GetMe, middleware.TokenBucketRateLimit(10, 1, 2))                     // max 10 tokens, and refill 1 token per second
-		g.GET("/user/me/leaky-bucket", userRouter.GetMe, middleware.LeakyBucketRateLimit(10, 1))                        // max 10 tokens, and leak 1 token per second
+		g.GET("/user/me/token-bucket", userRouter.GetMe, middleware.TokenBucketRateLimit(10, 1, 2, params.BaseCache))   // max 10 tokens, and refill 1 token per second
+		g.GET("/user/me/leaky-bucket", userRouter.GetMe, middleware.LeakyBucketRateLimit(10, 1, params.BaseCache))      // max 10 tokens, and leak 1 token per second
 	}
 }
 

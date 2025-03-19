@@ -8,6 +8,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
+	"github.com/redis/go-redis/v9"
+
+	"github.com/vanh01/api-rate-limiting/pkg/cache"
 )
 
 type TokenBucket struct {
@@ -15,11 +18,10 @@ type TokenBucket struct {
 	FillRate int
 	NoTokens int
 	LastTime time.Time
-	Lock     sync.Mutex
 }
 
-func TokenBucketRateLimit(capacity, fillRate, token int) echo.MiddlewareFunc {
-	clients := make(map[string]*TokenBucket)
+func TokenBucketRateLimit(capacity, fillRate, token int, bcache *cache.BaseCache) echo.MiddlewareFunc {
+	clients := make(map[string]*sync.Mutex)
 
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -30,20 +32,31 @@ func TokenBucketRateLimit(capacity, fillRate, token int) echo.MiddlewareFunc {
 			}
 
 			key := fmt.Sprintf("token_rate_limit:%s", userID)
-			if _, found := clients[key]; !found {
-				clients[key] = &TokenBucket{
+			if _, exist := clients[key]; !exist {
+				clients[key] = &sync.Mutex{}
+			}
+
+			clients[key].Lock()
+			defer clients[key].Unlock()
+
+			var client *TokenBucket
+			err = bcache.GetObject(key, &client)
+			if err == redis.Nil {
+				client := &TokenBucket{
 					Capacity: capacity,
 					FillRate: fillRate,
 					NoTokens: capacity,
 					LastTime: time.Now(),
 				}
+				bcache.SetObject(key, client, int64(capacity/fillRate))
 
 				return next(c)
 			}
 
-			client := clients[key]
-			client.Lock.Lock()
-			defer client.Lock.Unlock()
+			if err != nil {
+				return c.String(http.StatusInternalServerError, err.Error())
+			}
+
 			now := time.Now()
 			timePassed := now.Sub(client.LastTime).Seconds()
 			client.NoTokens = min(capacity, client.NoTokens+int(timePassed)*client.FillRate)
@@ -54,6 +67,7 @@ func TokenBucketRateLimit(capacity, fillRate, token int) echo.MiddlewareFunc {
 
 			client.LastTime = now
 			client.NoTokens -= token
+			bcache.SetObject(key, client, int64(capacity/fillRate))
 
 			return next(c)
 		}
